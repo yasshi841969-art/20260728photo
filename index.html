@@ -229,7 +229,7 @@
             max-width: 600px;
             margin: 0 auto;
             min-height: calc(100vh - 130px);
-            padding-bottom: 80px; /* ボトムナビゲーション用の余白 */
+            padding-bottom: 100px; /* ボトムナビゲーション用の余白（十分な余裕を確保） */
         }
 
         .view-content.active {
@@ -672,7 +672,8 @@
 
         .btn-save {
             width: 100%;
-            padding: 14px;
+            padding: 16px;
+            min-height: 48px;
             background: linear-gradient(135deg, var(--primary), var(--accent));
             color: white;
             border: none;
@@ -683,6 +684,7 @@
             box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
             transition: var(--transition);
             margin-top: 10px;
+            margin-bottom: 20px;
         }
 
         .btn-save:hover {
