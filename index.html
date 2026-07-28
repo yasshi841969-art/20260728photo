@@ -394,6 +394,105 @@
             margin-bottom: 8px;
         }
 
+        /* カメラモーダル */
+        .camera-modal {
+            position: fixed;
+            inset: 0;
+            background-color: #000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 2000;
+            padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+        }
+        .camera-modal.active {
+            display: flex;
+        }
+        .camera-preview-container {
+            flex: 1;
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+            border-radius: var(--radius-md);
+        }
+        #camera-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: var(--radius-md);
+        }
+        .camera-controls {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 20px 0;
+        }
+        .btn-shutter {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background-color: white;
+            border: 6px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: var(--transition);
+        }
+        .btn-shutter:active {
+            transform: scale(0.9);
+            background-color: #e2e8f0;
+        }
+        .btn-camera-action {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+        }
+        .btn-camera-action:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .btn-camera-close {
+            background: #ef4444;
+        }
+        .btn-camera-close:hover {
+            background: #dc2626;
+        }
+        /* カメラ追加ボタン */
+        .btn-camera-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 12px;
+            background-color: #f1f5f9;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            margin-top: 8px;
+        }
+        .btn-camera-trigger:hover {
+            background-color: #e2e8f0;
+            color: var(--text-primary);
+        }
+
         /* 写真アップローダー */
         .photo-uploader {
             border: 2px dashed #cbd5e1;
@@ -713,6 +812,13 @@
                             <img class="uploader-preview" id="image-preview" src="" alt="プレビュー">
                             <div class="uploader-overlay-hint">写真を変更する</div>
                         </div>
+                        <button type="button" class="btn-camera-trigger" id="btn-camera-open">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            カメラを起動して撮影
+                        </button>
                         <div class="exif-indicator" id="exif-success-msg">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="20 6 9 17 4 12"></polyline>
@@ -813,6 +919,28 @@
                 地図
             </a>
         </nav>
+    </div>
+
+    <!-- カメラ撮影モーダル -->
+    <div id="camera-modal" class="camera-modal">
+        <div class="camera-preview-container">
+            <video id="camera-video" autoplay playsinline></video>
+            <canvas id="camera-canvas" style="display: none;"></canvas>
+        </div>
+        <div class="camera-controls">
+            <button type="button" class="btn-camera-action" id="btn-camera-flip" title="カメラ切り替え">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                </svg>
+            </button>
+            <button type="button" class="btn-shutter" id="btn-camera-shutter" title="撮影"></button>
+            <button type="button" class="btn-camera-action btn-camera-close" id="btn-camera-close" title="閉じる">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
     </div>
 
     <!-- トースト通知 -->
@@ -997,6 +1125,111 @@
 
             // 保存処理
             document.getElementById('add-log-form').addEventListener('submit', handleSaveLog);
+
+            // カメラ撮影関連
+            const cameraModal = document.getElementById('camera-modal');
+            const cameraVideo = document.getElementById('camera-video');
+            const cameraCanvas = document.getElementById('camera-canvas');
+            let cameraStream = null;
+            let useFacingMode = "environment"; // デフォルトは背面カメラ
+
+            document.getElementById('btn-camera-open').addEventListener('click', async () => {
+                try {
+                    cameraStream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: useFacingMode },
+                        audio: false
+                    });
+                    cameraVideo.srcObject = cameraStream;
+                    cameraModal.classList.add('active');
+                    showToast("カメラを起動しました");
+                } catch (err) {
+                    console.error("Camera access error:", err);
+                    showToast("カメラの起動に失敗しました。");
+                }
+            });
+
+            document.getElementById('btn-camera-close').addEventListener('click', () => {
+                stopCamera();
+            });
+
+            document.getElementById('btn-camera-flip').addEventListener('click', async () => {
+                useFacingMode = useFacingMode === "environment" ? "user" : "environment";
+                if (cameraStream) {
+                    stopCamera();
+                    try {
+                        cameraStream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: useFacingMode },
+                            audio: false
+                        });
+                        cameraVideo.srcObject = cameraStream;
+                        cameraModal.classList.add('active');
+                    } catch (err) {
+                        showToast("カメラ切り替えに失敗しました。");
+                    }
+                }
+            });
+
+            document.getElementById('btn-camera-shutter').addEventListener('click', () => {
+                if (!cameraStream) return;
+
+                const width = cameraVideo.videoWidth;
+                const height = cameraVideo.videoHeight;
+                cameraCanvas.width = width;
+                cameraCanvas.height = height;
+
+                const ctx = cameraCanvas.getContext('2d');
+                if (useFacingMode === "user") {
+                    ctx.translate(width, 0);
+                    ctx.scale(-1, 1);
+                }
+                ctx.drawImage(cameraVideo, 0, 0, width, height);
+
+                const dataUrl = cameraCanvas.toDataURL('image/jpeg');
+                
+                const previewImg = document.getElementById('image-preview');
+                previewImg.src = dataUrl;
+                document.getElementById('photo-drop-zone').classList.add('has-image');
+
+                fileInput.value = "";
+
+                document.getElementById('exif-success-msg').style.display = 'none';
+                document.getElementById('exif-error-msg').style.display = 'none';
+
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('input-date').value = today;
+
+                if (navigator.geolocation) {
+                    showToast("現在地を取得中...");
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const lat = position.coords.latitude;
+                            const lng = position.coords.longitude;
+                            updateLocation(lat, lng, true);
+                            showToast("位置情報を取得しました！");
+                        },
+                        (error) => {
+                            console.warn("Geolocation error:", error);
+                            showToast("位置情報の取得に失敗しました。");
+                            updateLocation(35.6895, 139.6917, true);
+                        },
+                        { enableHighAccuracy: true, timeout: 5000 }
+                    );
+                } else {
+                    updateLocation(35.6895, 139.6917, true);
+                }
+
+                stopCamera();
+                showToast("写真を撮影しました");
+            });
+
+            function stopCamera() {
+                if (cameraStream) {
+                    cameraStream.getTracks().forEach(track => track.stop());
+                    cameraStream = null;
+                }
+                cameraVideo.srcObject = null;
+                cameraModal.classList.remove('active');
+            }
         }
 
         function handleAuthSuccess(accessToken) {
