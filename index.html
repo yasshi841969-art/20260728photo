@@ -16,6 +16,10 @@
     <!-- GIS (Google Identity Services) for Auth -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 
+    <!-- Leaflet.js (OpenStreetMap) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
     <style>
         :root {
             --bg-page: #f8fafc;
@@ -637,6 +641,7 @@
         #mini-map {
             width: 100%;
             height: 100%;
+            z-index: 1;
         }
 
         .map-placeholder {
@@ -650,6 +655,7 @@
             color: var(--text-secondary);
             text-align: center;
             padding: 20px;
+            z-index: 2;
         }
 
         .map-placeholder svg {
@@ -707,6 +713,58 @@
         #full-map {
             width: 100%;
             height: 100%;
+            z-index: 1;
+        }
+
+        /* Leaflet ポップアップのカスタムスタイル */
+        .leaflet-popup-content-wrapper {
+            border-radius: var(--radius-md) !important;
+            box-shadow: var(--shadow-lg) !important;
+            padding: 0 !important;
+            overflow: hidden;
+        }
+
+        .leaflet-popup-content {
+            margin: 0 !important;
+            min-width: 200px !important;
+        }
+
+        .popup-card {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+        }
+
+        .popup-card img {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .popup-card .popup-body {
+            padding: 12px;
+        }
+
+        .popup-card .popup-date {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .popup-card .popup-comment {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text-primary);
+        }
+
+        .popup-card .popup-location {
+            font-size: 11px;
+            color: var(--accent);
+            font-weight: 500;
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
 
         /* 共通：トースト通知 */
@@ -747,7 +805,7 @@
                 </svg>
             </div>
             <h1>PhotoLog</h1>
-            <p>写真に記録された場所をGoogleマップで振り返る。日常の軌跡を写真と一緒に美しくログ化します。</p>
+            <p>写真に記録された場所を地図で振り返る。日常の軌跡を写真と一緒に美しくログ化します。</p>
             
             <!-- Google ログインボタン (gis) -->
             <button class="btn-google" id="btn-login">
@@ -879,14 +937,6 @@
             <div id="view-map" class="view-content" style="padding: 0; max-width: none;">
                 <div class="map-view-wrapper">
                     <div id="full-map"></div>
-                    <div class="map-placeholder" id="full-map-placeholder">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"></path>
-                            <circle cx="12" cy="10" r="3"></circle>
-                        </svg>
-                        <p>Google Maps を読み込み中...</p>
-                        <span style="max-width: 250px; margin-top: 8px;">APIキー（GOOGLE_MAPS_API_KEY）を設定すると全画面地図が表示されます。現在デモ用モックマップとして動作しています。</span>
-                    </div>
                 </div>
             </div>
         </main>
@@ -952,8 +1002,6 @@
         /****************************************************************
          * 1. 定義および API 設定
          ****************************************************************/
-        // TODO: 実際のキーに書き換えてください
-        const GOOGLE_MAPS_API_KEY = 'YOUR_DUMMY_KEY';
         const GOOGLE_OAUTH_CLIENT_ID = 'YOUR_CLIENT_ID';
         const SCOPES = 'https://www.googleapis.com/auth/photoslibrary.appendonly'; // Google Photos API scope
 
@@ -966,7 +1014,7 @@
             mapsLoaded: false,
             fullMap: null,
             miniMap: null,
-            fullMapMarkers: [],
+            fullMapMarkers: [],   // Leaflet Layer Group
             miniMapMarker: null,
             currentLat: null,
             currentLng: null
@@ -1241,8 +1289,8 @@
             // スプラッシュ画面を閉じる
             document.getElementById('auth-screen').classList.add('hidden');
 
-            // Google Mapsの読み込み
-            loadGoogleMaps();
+            // Leaflet地図の初期化
+            initLeafletMaps();
         }
 
         // SPA画面の切り替え
@@ -1265,193 +1313,103 @@
                 }
             });
 
-            // 地図画面がアクティブになった場合、Google Mapsの再レンダリング/サイズ再計算を促す
+            // 地図画面がアクティブになった場合、Leafletのサイズ再計算を促す
             if (viewId === 'view-map') {
-                if (appState.mapsLoaded && appState.fullMap && window.google && window.google.maps) {
-                    try {
-                        google.maps.event.trigger(appState.fullMap, 'resize');
-                    } catch (e) {
-                        console.warn('Failed to resize map, falling back to mock view.', e);
-                        initFullMapMock();
-                    }
-                } else {
-                    initFullMapMock();
+                if (appState.fullMap) {
+                    setTimeout(() => {
+                        appState.fullMap.invalidateSize();
+                    }, 100);
                 }
             }
-            // 追加画面で地図が初期化されていない場合
-            if (viewId === 'view-add' && !appState.miniMap) {
-                initMiniMapMock();
+
+            // 追加画面がアクティブになった場合、ミニ地図のサイズ再計算
+            if (viewId === 'view-add') {
+                if (appState.miniMap) {
+                    setTimeout(() => {
+                        appState.miniMap.invalidateSize();
+                    }, 100);
+                }
             }
         }
 
         /****************************************************************
-         * 3. Google Maps API の読み込みと初期化
+         * 3. Leaflet (OpenStreetMap) の初期化
          ****************************************************************/
-        // Google Mapsの認証失敗時のグローバルイベントハンドラ
-        window.gm_authFailure = function() {
-            console.warn("Google Maps API Authentication Failed. Activating Mock Map Mode.");
-            appState.mapsLoaded = false;
-            initFullMapMock();
-            initMiniMapMock();
-        };
-
-        function loadGoogleMaps() {
+        function initLeafletMaps() {
             if (appState.mapsLoaded) return;
+            appState.mapsLoaded = true;
 
-            if (GOOGLE_MAPS_API_KEY === 'YOUR_DUMMY_KEY') {
-                console.info('Using Mock Map Mode (Dummy key detected).');
-                initFullMapMock();
-                initMiniMapMock();
-                return;
-            }
+            // 日本の中心付近（東京）
+            const centerJapan = [36.2, 138.2];
 
-            try {
-                // Google Maps Scriptを動的に注入
-                const script = document.createElement('script');
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=onGoogleMapsLoaded`;
-                script.async = true;
-                script.defer = true;
-                script.onerror = () => {
-                    console.warn("Failed to load Google Maps script. Activating Mock Map Mode.");
-                    appState.mapsLoaded = false;
-                    initFullMapMock();
-                    initMiniMapMock();
-                };
-                document.head.appendChild(script);
-            } catch (err) {
-                console.error("Error injecting Google Maps script:", err);
-                appState.mapsLoaded = false;
-                initFullMapMock();
-                initMiniMapMock();
-            }
-        }
+            // --- 全画面地図の初期化 ---
+            appState.fullMap = L.map('full-map', {
+                zoomControl: true,
+                attributionControl: true
+            }).setView(centerJapan, 6);
 
-        // Maps APIロード完了コールバック
-        window.onGoogleMapsLoaded = function() {
-            try {
-                appState.mapsLoaded = true;
-                
-                // プレースホルダーを隠す
-                const fullPlaceholder = document.getElementById('full-map-placeholder');
-                const miniPlaceholder = document.getElementById('mini-map-placeholder');
-                if (fullPlaceholder) fullPlaceholder.style.display = 'none';
-                if (miniPlaceholder) miniPlaceholder.style.display = 'none';
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }).addTo(appState.fullMap);
 
-                // 全画面地図の初期化
-                const centerTokyo = { lat: 35.6895, lng: 139.6917 };
-                appState.fullMap = new google.maps.Map(document.getElementById('full-map'), {
-                    zoom: 5,
-                    center: centerTokyo,
-                    mapTypeControl: false,
-                    streetViewControl: false,
-                    fullscreenControl: false
-                });
+            // --- ミニ地図の初期化 ---
+            appState.miniMap = L.map('mini-map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView([35.6895, 139.6917], 12);
 
-                // ミニ地図の初期化
-                appState.miniMap = new google.maps.Map(document.getElementById('mini-map'), {
-                    zoom: 12,
-                    center: centerTokyo,
-                    mapTypeControl: false,
-                    streetViewControl: false,
-                    fullscreenControl: false
-                });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19
+            }).addTo(appState.miniMap);
 
-                // ミニマップクリックでマーカー移動
-                appState.miniMap.addListener('click', (e) => {
-                    updateLocation(e.latLng.lat(), e.latLng.lng(), true);
-                });
+            // ミニマップクリックでマーカー移動
+            appState.miniMap.on('click', (e) => {
+                updateLocation(e.latlng.lat, e.latlng.lng, true);
+            });
 
-                // 既存のログをフル地図に配置
-                refreshMapMarkers();
-            } catch (e) {
-                console.error("Error during Google Maps initialization:", e);
-                appState.mapsLoaded = false;
-                initFullMapMock();
-                initMiniMapMock();
-            }
-        };
+            // プレースホルダーを隠す（ミニ地図用。全画面地図にはプレースホルダーなし）
+            const miniPlaceholder = document.getElementById('mini-map-placeholder');
+            if (miniPlaceholder) miniPlaceholder.style.display = 'none';
 
-        // APIキーが無い場合や読み込みに失敗した場合のモック地図の処理
-        function initFullMapMock() {
-            const container = document.getElementById('full-map');
-            if (!container) return;
-            container.innerHTML = `
-                <div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f1f5f9; color:var(--text-secondary); text-align:center; padding: 20px;">
-                    <div style="background: white; padding: 32px 24px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); max-width: 480px; border: 1px solid var(--border);">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5" style="margin-bottom:16px;">
-                            <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon>
-                            <line x1="9" y1="3" x2="9" y2="18"></line>
-                            <line x1="15" y1="6" x2="15" y2="22"></line>
-                        </svg>
-                        <h4 style="margin-bottom:12px; color: var(--text-primary); font-size: 15px; font-weight: 600; line-height: 1.5;">
-                            【開発中】本物のGoogle Maps APIキーが設定されるとここに地図が表示されます（画面切り替えのテストは可能です）
-                        </h4>
-                        <p style="font-size:12px; color: var(--text-muted); line-height:1.6; margin-bottom: 20px;">
-                            現在プレビュー用のデモモードです。画面下部ナビゲーションから他のタブへ自由に行き来できます。
-                        </p>
-                        <div style="background:var(--bg-page); padding:12px; border-radius:var(--radius-sm); font-size:11px; border:1px solid var(--border); text-align:left;">
-                            <strong style="color:var(--text-primary);">登録済みログ位置リスト（シミュレーション）:</strong><br>
-                            <div style="margin-top: 6px; max-height: 100px; overflow-y: auto; font-family: monospace;">
-                                ${appState.logs.map(log => `📍 ${log.locationName || '登録地'} (${log.lat.toFixed(4)}, ${log.lng.toFixed(4)})`).join('<br>')}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function initMiniMapMock() {
-            const container = document.getElementById('mini-map');
-            if (!container) return;
-            container.innerHTML = `
-                <div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f8fafc; color:var(--text-secondary); font-size:12px; padding:15px; text-align:center; border: 1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-secondary); margin-bottom: 4px;">🗺️ 位置選択マップ（開発中/モック）</span>
-                    <span id="mock-mini-coords" style="font-family:monospace; background:white; padding:4px 8px; border-radius:4px; border:1px solid var(--border); font-weight: 500;">未設定</span>
-                </div>
-            `;
-            updateMockMiniCoords();
-        }
-
-        function updateMockMiniCoords() {
-            const label = document.getElementById('mock-mini-coords');
-            if (label) {
-                if (appState.currentLat && appState.currentLng) {
-                    label.textContent = `${appState.currentLat.toFixed(4)}, ${appState.currentLng.toFixed(4)}`;
-                } else {
-                    label.textContent = '未設定';
-                }
-            }
+            // 既存のログをフル地図に配置
+            refreshMapMarkers();
         }
 
         // 地図上のピン情報更新
         function refreshMapMarkers() {
-            if (!appState.mapsLoaded) return;
+            if (!appState.mapsLoaded || !appState.fullMap) return;
 
             // 既存マーカークリア
-            appState.fullMapMarkers.forEach(m => m.setMap(null));
+            appState.fullMapMarkers.forEach(m => appState.fullMap.removeLayer(m));
             appState.fullMapMarkers = [];
 
             // ログのマーカーを設置
             appState.logs.forEach(log => {
-                const marker = new google.maps.Marker({
-                    position: { lat: log.lat, lng: log.lng },
-                    map: appState.fullMap,
-                    title: log.comment
-                });
+                const marker = L.marker([log.lat, log.lng]).addTo(appState.fullMap);
 
-                // 情報ウィンドウの設定
-                const infoWindow = new google.maps.InfoWindow({
-                    content: `
-                        <div style="color: black; font-family: sans-serif; max-width: 180px;">
-                            <img src="${log.imageUrl}" style="width: 100%; height: 90px; object-fit: cover; border-radius: 4px; margin-bottom: 6px;">
-                            <strong style="font-size: 12px;">${log.date} ${log.time}</strong>
-                            <p style="font-size: 11px; margin-top: 4px; color: #333;">${log.comment}</p>
+                // ポップアップのHTMLを構築
+                const popupContent = `
+                    <div class="popup-card">
+                        <img src="${log.imageUrl}" alt="写真" onerror="this.style.display='none'">
+                        <div class="popup-body">
+                            <div class="popup-date">${log.date} ${log.time}</div>
+                            <div class="popup-comment">${escapeHTML(log.comment) || '<span style="color:#94a3b8; font-style:italic;">コメントなし</span>'}</div>
+                            <div class="popup-location">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                    <circle cx="12" cy="10" r="3"></circle>
+                                </svg>
+                                ${log.locationName}
+                            </div>
                         </div>
-                    `
-                });
+                    </div>
+                `;
 
-                marker.addListener('click', () => {
-                    infoWindow.open(appState.fullMap, marker);
+                marker.bindPopup(popupContent, {
+                    maxWidth: 260,
+                    minWidth: 200,
+                    className: 'photolog-popup'
                 });
 
                 appState.fullMapMarkers.push(marker);
@@ -1536,27 +1494,27 @@
                 document.getElementById('input-lng').value = lng.toFixed(6);
             }
 
-            // Google Mapsが有効な場合
+            // ミニ地図プレースホルダーを隠す
+            const miniPlaceholder = document.getElementById('mini-map-placeholder');
+            if (miniPlaceholder) miniPlaceholder.style.display = 'none';
+
+            // Leafletミニ地図が有効な場合
             if (appState.mapsLoaded && appState.miniMap) {
-                const pos = { lat: lat, lng: lng };
-                appState.miniMap.setCenter(pos);
+                appState.miniMap.setView([lat, lng], 14);
                 
                 if (appState.miniMapMarker) {
-                    appState.miniMapMarker.setPosition(pos);
+                    appState.miniMapMarker.setLatLng([lat, lng]);
                 } else {
-                    appState.miniMapMarker = new google.maps.Marker({
-                        position: pos,
-                        map: appState.miniMap,
+                    appState.miniMapMarker = L.marker([lat, lng], {
                         draggable: true
-                    });
+                    }).addTo(appState.miniMap);
                     
                     // ピンのドラッグ移動でも位置情報を更新
-                    appState.miniMapMarker.addListener('dragend', (e) => {
-                        updateLocation(e.latLng.lat(), e.latLng.lng(), true);
+                    appState.miniMapMarker.on('dragend', (e) => {
+                        const pos = e.target.getLatLng();
+                        updateLocation(pos.lat, pos.lng, true);
                     });
                 }
-            } else {
-                updateMockMiniCoords();
             }
         }
 
@@ -1673,8 +1631,8 @@
             document.getElementById('exif-error-msg').style.display = 'none';
             appState.currentLat = null;
             appState.currentLng = null;
-            if (appState.miniMapMarker) {
-                appState.miniMapMarker.setMap(null);
+            if (appState.miniMapMarker && appState.miniMap) {
+                appState.miniMap.removeLayer(appState.miniMapMarker);
                 appState.miniMapMarker = null;
             }
             const placeholderMap = document.getElementById('mini-map-placeholder');
@@ -1756,9 +1714,18 @@
         window.showOnMap = function(lat, lng) {
             switchView('view-map');
             if (appState.fullMap) {
-                const pos = { lat: lat, lng: lng };
-                appState.fullMap.setCenter(pos);
-                appState.fullMap.setZoom(14);
+                setTimeout(() => {
+                    appState.fullMap.invalidateSize();
+                    appState.fullMap.setView([lat, lng], 14);
+
+                    // 該当マーカーのポップアップを開く
+                    appState.fullMapMarkers.forEach(marker => {
+                        const markerPos = marker.getLatLng();
+                        if (Math.abs(markerPos.lat - lat) < 0.001 && Math.abs(markerPos.lng - lng) < 0.001) {
+                            marker.openPopup();
+                        }
+                    });
+                }, 150);
             }
         };
 
