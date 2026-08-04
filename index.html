@@ -626,6 +626,30 @@
             margin-top: 10px;
         }
 
+        .search-location-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .search-location-bar input {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+        .search-location-bar button {
+            padding: 8px 16px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .search-location-bar button:hover {
+            background-color: var(--primary-hover);
+        }
+
         /* ミニ地図 */
         .mini-map-container {
             width: 100%;
@@ -899,6 +923,10 @@
                     <!-- 位置情報 -->
                     <div class="form-group">
                         <label>撮影場所</label>
+                        <div class="search-location-bar">
+                            <input type="text" id="input-search-location" placeholder="場所や住所を入力">
+                            <button type="button" id="btn-search-location">検索</button>
+                        </div>
                         <div class="mini-map-container">
                             <div id="mini-map"></div>
                             <div class="map-placeholder" id="mini-map-placeholder">
@@ -998,12 +1026,82 @@
     <!-- トースト通知 -->
     <div id="toast">メッセージ</div>
 
+    <style>
+        .search-bar-container { padding: 16px; background: #fff; border-bottom: 1px solid #eee; }
+        .search-bar-container input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
+    </style>
+
     <script>
         /****************************************************************
          * 1. 定義および API 設定
          ****************************************************************/
         const GOOGLE_OAUTH_CLIENT_ID = 'YOUR_CLIENT_ID';
-        const SCOPES = 'https://www.googleapis.com/auth/photoslibrary.appendonly'; // Google Photos API scope
+        const SCOPES = 'https://www.googleapis.com/auth/photoslibrary.appendonly'; 
+
+        const dummyLogs = [
+            {
+                id: 2,
+                date: "2026-08-01",
+                time: "14:30",
+                imageUrl: "https://images.unsplash.com/photo-1542204165-65bf26472b9b?auto=format&fit=crop&w=800&q=80",
+                lat: 35.6585,
+                lng: 139.7454,
+                locationName: "東京タワー",
+                comment: "天気が良くて景色が最高だった！"
+            },
+            {
+                id: 1,
+                date: "2026-07-25",
+                time: "10:15",
+                imageUrl: "https://images.unsplash.com/photo-1493514816540-e3ac553a1fc3?auto=format&fit=crop&w=800&q=80",
+                lat: 35.3197,
+                lng: 139.5461,
+                locationName: "鎌倉海岸",
+                comment: "海沿いのカフェで一息。風が気持ちいい。"
+            }
+        ];
+
+        // IndexedDB の初期化と操作関数
+        const DB_NAME = 'PhotoLogDB';
+        const STORE_NAME = 'logs';
+        let db;
+
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = (e) => {
+                    db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+                request.onsuccess = (e) => {
+                    db = e.target.result;
+                    resolve(db);
+                };
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        function loadLogsFromDB() {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        function saveLogToDB(log) {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.put(log);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
 
         // アプリの状態管理
         let appState = {
@@ -1020,55 +1118,30 @@
             currentLng: null
         };
 
-        // 初期ダミーデータ
-        const dummyLogs = [
-            {
-                id: 1,
-                date: "2026-07-28",
-                time: "15:30",
-                imageUrl: "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=800&q=80", // 東京
-                lat: 35.6895,
-                lng: 139.6917,
-                locationName: "東京都新宿区",
-                comment: "新宿御苑を散策。お天気が良く最高の散歩日和でした。"
-            },
-            {
-                id: 2,
-                date: "2026-07-27",
-                time: "11:15",
-                imageUrl: "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=800&q=80", // 京都
-                lat: 35.0116,
-                lng: 135.7681,
-                locationName: "京都市中京区",
-                comment: "京都の路地裏で見つけた素敵なカフェで抹茶ラテを堪能しました。"
-            },
-            {
-                id: 3,
-                date: "2026-07-25",
-                time: "18:45",
-                imageUrl: "https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=800&q=80", // 渋谷
-                lat: 35.6580,
-                lng: 139.7016,
-                locationName: "東京都渋谷区",
-                comment: "渋谷のスクランブル交差点を一望できるビルから撮影。夜のネオンが綺麗。"
-            }
-        ];
-
         /****************************************************************
          * 2. アプリの起動・認証処理
          ****************************************************************/
-        document.addEventListener('DOMContentLoaded', () => {
-            initApp();
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initApp();
         });
 
-        function initApp() {
-            // ローカルストレージからログを読み込む（なければダミーデータを使用）
-            const savedLogs = localStorage.getItem('photolog_data');
-            if (savedLogs) {
-                appState.logs = JSON.parse(savedLogs);
-            } else {
+        async function initApp() {
+            // IndexedDBからログを読み込む（なければダミーデータを使用）
+            try {
+                await initDB();
+                const savedLogs = await loadLogsFromDB();
+                if (savedLogs && savedLogs.length > 0) {
+                    appState.logs = savedLogs.sort((a, b) => b.id - a.id); // 新しい順にソート
+                } else {
+                    appState.logs = [...dummyLogs];
+                    for(let log of dummyLogs) {
+                        await saveLogToDB(log);
+                    }
+                }
+            } catch(e) {
+                console.error("DB init error:", e);
+                // エラー時はダミーデータを表示
                 appState.logs = [...dummyLogs];
-                localStorage.setItem('photolog_data', JSON.stringify(appState.logs));
             }
 
             // イベントリスナーのセットアップ
@@ -1172,6 +1245,29 @@
             };
             latInput.addEventListener('input', updateCoordinates);
             lngInput.addEventListener('input', updateCoordinates);
+
+            // 住所・キーワード検索機能
+            document.getElementById('btn-search-location').addEventListener('click', async () => {
+                const query = document.getElementById('input-search-location').value;
+                if(!query) return;
+                
+                showToast("検索中...");
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+                    if(data && data.length > 0) {
+                        const lat = parseFloat(data[0].lat);
+                        const lng = parseFloat(data[0].lon);
+                        updateLocation(lat, lng, true);
+                        showToast("場所が見つかりました");
+                    } else {
+                        showToast("場所が見つかりませんでした");
+                    }
+                } catch (e) {
+                    console.error("Search error:", e);
+                    showToast("検索中にエラーが発生しました");
+                }
+            });
 
             // 保存処理
             document.getElementById('add-log-form').addEventListener('submit', handleSaveLog);
@@ -1469,8 +1565,26 @@
                     document.getElementById('exif-success-msg').style.display = 'flex';
                 } else {
                     document.getElementById('exif-error-msg').style.display = 'flex';
-                    // デフォルトの初期位置（東京など）
-                    updateLocation(35.6895, 139.6917, true);
+                    // Exifで位置情報がない場合、現在地を取得
+                    if (navigator.geolocation) {
+                        showToast("位置情報を取得中...");
+                        navigator.geolocation.getCurrentPosition(
+                            (position) => {
+                                const lat = position.coords.latitude;
+                                const lng = position.coords.longitude;
+                                updateLocation(lat, lng, true);
+                                showToast("現在地を取得しました");
+                            },
+                            (error) => {
+                                console.warn("Geolocation error:", error);
+                                showToast("位置情報の取得に失敗しました");
+                                updateLocation(35.6895, 139.6917, true);
+                            },
+                            { enableHighAccuracy: true, timeout: 5000 }
+                        );
+                    } else {
+                        updateLocation(35.6895, 139.6917, true);
+                    }
                 }
             });
         }
@@ -1560,14 +1674,14 @@
                     comment: commentVal
                 };
 
-                // ログの保存 (LocalStorage)
+                // ログの保存 (IndexedDB)
                 appState.logs.unshift(newLog);
                 try {
-                    localStorage.setItem('photolog_data', JSON.stringify(appState.logs));
+                    await saveLogToDB(newLog);
                 } catch (error) {
-                    console.error("LocalStorage save error:", error);
+                    console.error("IndexedDB save error:", error);
                     appState.logs.shift(); // 保存失敗時は元に戻す
-                    showToast("保存エラー: 容量がいっぱいの可能性があります。");
+                    showToast("保存エラー: データの保存に失敗しました。");
                     return;
                 }
 
