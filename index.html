@@ -1103,6 +1103,30 @@
             });
         }
 
+        window.deleteLog = async function(id) {
+            if (!confirm("このログを完全に削除しますか？")) return;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.delete(id);
+                request.onsuccess = async () => {
+                    appState.logs = appState.logs.filter(log => log.id !== id);
+                    renderLogs();
+                    refreshMapMarkers();
+                    showToast("ログを削除しました");
+                    
+                    // 地図のポップアップが開いていれば閉じる（現在開いているポップアップを閉じる）
+                    if (appState.fullMap) {
+                        appState.fullMap.closePopup();
+                    }
+                };
+                request.onerror = () => showToast("削除に失敗しました");
+            } catch (e) {
+                console.error("Delete error:", e);
+                showToast("削除処理中にエラーが発生しました");
+            }
+        };
+
         // アプリの状態管理
         let appState = {
             isLoggedIn: false,
@@ -1498,6 +1522,9 @@
                                 </svg>
                                 ${log.locationName}
                             </div>
+                            <div style="margin-top: 8px; text-align: right;">
+                                <a href="#" onclick="deleteLog(${log.id}); return false;" style="color: #ef4444; font-size: 11px; text-decoration: none;">このログを削除</a>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1858,6 +1885,12 @@
                                 </a>
                             </div>
                             <p class="log-comment">${escapeHTML(log.comment) || '<span style="color:var(--text-muted); font-style:italic;">コメントなし</span>'}</p>
+                            <div class="log-actions" style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                                <button type="button" onclick="deleteLog(${log.id})" style="background: none; border: none; color: #ef4444; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                    削除
+                                </button>
+                            </div>
                         </div>
                     `;
                     dateGroup.appendChild(card);
