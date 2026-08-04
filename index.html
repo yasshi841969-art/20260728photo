@@ -1535,50 +1535,93 @@
                 return;
             }
 
-            // 写真が選択されていない場合はダミー画像を割り当てる
-            let imageUrl = "https://images.unsplash.com/photo-1452421820064-e70a9a26b080?auto=format&fit=crop&w=800&q=80";
-            if (fileInput.files.length > 0) {
-                imageUrl = document.getElementById('image-preview').src;
-                
+            const processSave = async (base64ImageUrl) => {
                 // TODO: Google Photos API への実際のアップロード
-                if (appState.accessToken && appState.accessToken !== 'demo_token') {
+                if (fileInput.files.length > 0 && appState.accessToken && appState.accessToken !== 'demo_token') {
                     showToast("Google Photos へのアップロードを模倣中...");
                     await uploadToGooglePhotos(fileInput.files[0], appState.accessToken);
                 }
-            }
 
-            // 逆ジオコーディング（モック）で地域名を作成
-            let locationName = "登録地点";
-            if (latVal.toFixed(2) == 35.69 && lngVal.toFixed(2) == 139.69) locationName = "東京都新宿区";
-            else if (latVal.toFixed(2) == 35.66 && lngVal.toFixed(2) == 139.70) locationName = "東京都渋谷区";
-            else if (latVal.toFixed(2) == 35.01 && lngVal.toFixed(2) == 135.77) locationName = "京都市中京区";
-            else locationName = `緯度: ${latVal.toFixed(2)} 経度: ${lngVal.toFixed(2)}`;
+                // 逆ジオコーディング（モック）で地域名を作成
+                let locationName = "登録地点";
+                if (latVal.toFixed(2) == 35.69 && lngVal.toFixed(2) == 139.69) locationName = "東京都新宿区";
+                else if (latVal.toFixed(2) == 35.66 && lngVal.toFixed(2) == 139.70) locationName = "東京都渋谷区";
+                else if (latVal.toFixed(2) == 35.01 && lngVal.toFixed(2) == 135.77) locationName = "京都市中京区";
+                else locationName = `緯度: ${latVal.toFixed(2)} 経度: ${lngVal.toFixed(2)}`;
 
-            const newLog = {
-                id: Date.now(),
-                date: dateVal,
-                time: new Date().toTimeString().slice(0, 5),
-                imageUrl: imageUrl,
-                lat: latVal,
-                lng: lngVal,
-                locationName: locationName,
-                comment: commentVal
+                const newLog = {
+                    id: Date.now(),
+                    date: dateVal,
+                    time: new Date().toTimeString().slice(0, 5),
+                    imageUrl: base64ImageUrl,
+                    lat: latVal,
+                    lng: lngVal,
+                    locationName: locationName,
+                    comment: commentVal
+                };
+
+                // ログの保存 (LocalStorage)
+                appState.logs.unshift(newLog);
+                try {
+                    localStorage.setItem('photolog_data', JSON.stringify(appState.logs));
+                } catch (error) {
+                    console.error("LocalStorage save error:", error);
+                    appState.logs.shift(); // 保存失敗時は元に戻す
+                    showToast("保存エラー: 容量がいっぱいの可能性があります。");
+                    return;
+                }
+
+                // 表示の更新とリスト画面への切り替え
+                renderLogs();
+                refreshMapMarkers();
+                resetForm();
+
+                showToast("新しいログを保存しました！");
+                switchView('view-list');
             };
 
-            // ログの保存
-            appState.logs.unshift(newLog);
-            localStorage.setItem('photolog_data', JSON.stringify(appState.logs));
+            // FileReader を使って写真をBase64に変換して保存
+            if (fileInput.files.length > 0) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    // 容量超過を防ぐためCanvasでリサイズ＆圧縮してBase64化
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_SIZE = 800; // 適度なサイズに縮小
+                        let width = img.width;
+                        let height = img.height;
 
-            // 表示の更新
-            renderLogs();
-            refreshMapMarkers();
+                        if (width > height && width > MAX_SIZE) {
+                            height *= MAX_SIZE / width;
+                            width = MAX_SIZE;
+                        } else if (height > MAX_SIZE) {
+                            width *= MAX_SIZE / height;
+                            height = MAX_SIZE;
+                        }
 
-            // フォームの初期化
-            resetForm();
-
-            // トースト表示＆リスト画面へ戻る
-            showToast("新しいログを保存しました！");
-            switchView('view-list');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        const base64Url = canvas.toDataURL('image/jpeg', 0.8);
+                        processSave(base64Url);
+                    };
+                    img.src = event.target.result;
+                };
+                reader.onerror = () => {
+                    showToast("画像の読み込みに失敗しました。");
+                };
+                reader.readAsDataURL(fileInput.files[0]);
+            } else {
+                // 写真が選択されていない場合（カメラ撮影後、またはダミー）
+                let imageUrl = "https://images.unsplash.com/photo-1452421820064-e70a9a26b080?auto=format&fit=crop&w=800&q=80";
+                if (document.getElementById('photo-drop-zone').classList.contains('has-image')) {
+                    imageUrl = document.getElementById('image-preview').src;
+                }
+                processSave(imageUrl);
+            }
         }
 
         // Google Photos API アップロードスタブ
